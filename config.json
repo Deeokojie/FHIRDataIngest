@@ -1,0 +1,8 @@
+{
+  "mongo_uri": "mongodb://localhost:27017",
+  "database_name": "fhirData",
+  "batch_size": 100,
+  "data_directory": "/Users/test/Projects/exa-data-eng-assessment/data",
+  "max_retry_attempts": 3,
+  "retry_delay_seconds": 5
+}
