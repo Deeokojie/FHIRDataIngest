@@ -1,0 +1,7 @@
+net:
+  ssl:
+    mode: requireSSL
+    PEMKeyFile: /path/to/your/server.pem
+    CAFile: /path/to/your/ca.pem
+    allowConnectionsWithoutCertificates: true
+

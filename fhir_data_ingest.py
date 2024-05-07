@@ -3,11 +3,17 @@ import os
 import logging
 from pymongo import MongoClient, errors
 from time import sleep
+from fhir_transformers import anonymize_data, transform_patient_data
 
-# Import the function that transforms raw FHIR patient data into a structured dictionary.
-from transformers import transform_patient_data
+# Load database configuration from environment variables
+db_host = os.getenv('DB_HOST', 'localhost')
+db_port = os.getenv('DB_PORT', 27017)
+db_name = os.getenv('DB_NAME', 'test_database')
 
-# Configure logging to capture all events, saved to a log file with detailed time and level information.
+# Connect to MongoDB
+client = MongoClient(f'mongodb://{db_host}:{db_port}/')
+db = client[db_name]
+
 logging.basicConfig(
     filename='data_ingest.log',
     level=logging.INFO,
@@ -16,57 +22,104 @@ logging.basicConfig(
 
 # Load configuration settings from a JSON file to manage database connections and processing parameters.
 def load_config():
+    config_path ='/Users/test/Projects/FHIRDataIngest/config.json'
     try:
-        with open('config.json', 'r') as config_file:
+        with open(config_path, 'r') as config_file:
             return json.load(config_file)
-    except Exception as e:
-        logging.error(f"Error loading configuration: {e}")
-        raise
+    except FileNotFoundError:
+        logging.error(f"Configuration file not found at {config_path}")
+        return {}  
 
 config = load_config()
 
 # Establish a MongoDB client using the URI provided in the configuration file.
-def setup_mongo_client():
+from pymongo import MongoClient, errors
+
+def setup_mongo_client(use_test_db=False, use_ssl=False):
     try:
-        client = MongoClient(config['mongo_uri'])
-        return client[config['database_name']]
+        db_name = config.get('test_database', 'fhirData') if use_test_db else config.get('database_name', 'fhirData')
+        mongo_uri = config.get('mongo_uri', 'mongodb://localhost:27017')
+        client = MongoClient('mongodb://localhost:27017/', tls=False)
+        return client[db_name]
     except errors.ConnectionFailure as e:
         logging.error(f"Failed to connect to MongoDB: {e}")
-        raise
+        raise ConnectionError("Failed to connect to the database")
 
 db = setup_mongo_client()
+
+# Function to determine the collection name based on file name patterns.
+def determine_collection_name(filename):
+    if "patient" in filename:
+        return "patients_collection"
+    elif "encounter" in filename:
+        return "encounters_collection"
+    elif "observation" in filename:
+        return "observations_collection"
+    else:
+        return "unknown_collection"
 
 # Read JSON data from a file, transform it using a custom function, and handle errors gracefully.
 def read_and_transform_data(file_path):
     try:
         with open(file_path, 'r') as file:
             data = json.load(file)
-            return transform_patient_data(data)
+        return transform_patient_data(data)
+    except json.JSONDecodeError as e:
+        logging.error(f"JSON decode error in file {file_path}: {e}")
     except Exception as e:
-        logging.error(f"Error with file {file_path}: {e}")
+        logging.error(f"Unexpected error with file {file_path}: {e}")
+    return None
+
+def transform_patient_data(patient_record):
+    """
+    Transforms a FHIR patient record into a tabular dictionary format.
+    Args:
+    patient_record (dict): A dictionary containing the FHIR patient record data.
+    Returns:
+    dict: A dictionary containing structured patient data.
+    """
+    try:
+        patient_id = patient_record.get("id", "Unknown")
+        name = patient_record.get('name', {})
+        given_names = " ".join(name.get('given', []))
+        family_name = name.get('family', "Unknown")
+        birth_date = patient_record.get("birthDate", "Unknown")
+        gender = patient_record.get("gender", "Unknown")
+
+        full_name = f"{given_names} {family_name}".strip() if given_names and family_name else "Unknown"
+
+        return {
+            "patient_id": patient_id,
+            "full_name": full_name,
+            "birth_date": birth_date,
+            "gender": gender
+        }
+    except IndexError as e:
+        logging.error("Error processing patient record: Missing expected fields - %s", e)
         return None
 
 # Attempt to save a batch of transformed data to the database, with retry logic for handling failures.
 def batch_save_to_database(data_batch, collection_name):
     if not data_batch:
+        logging.info("No data to save; empty batch.")
         return
-    retry_count = 0
-    max_retries = config.get('max_retry_attempts', 3)
-    delay_seconds = config.get('retry_delay_seconds', 5)
-    while retry_count < max_retries:
-        try:
-            collection = db[collection_name]
-            collection.insert_many(data_batch)
-            logging.info(f"Batch saved to {collection_name}. Total documents: {len(data_batch)}")
-            break
-        except errors.PyMongoError as e:
-            logging.error(f"Failed to save batch to {collection_name}: {e}")
-            retry_count += 1
-            logging.info(f"Retrying batch save ({retry_count}/{max_retries}) after a delay...")
-            sleep(delay_seconds)
-    else:
-        logging.error("Max retry attempts reached. Data not saved.")
+    try:
+        collection = db[collection_name]
+        collection.insert_many(data_batch)
+        logging.info(f"Successfully saved batch to {collection_name}: {len(data_batch)} documents")
+    except errors.BulkWriteError as e:
+        logging.error(f"Bulk write error to {collection_name}: {e.details}")
+    except errors.PyMongoError as e:
+        logging.error(f"Failed to save batch to {collection_name}: {e}")
+        raise
 
+def log_unsaved_data(data_batch, collection_name):
+    unsaved_data_file = f"unsaved_data_{collection_name}.log"
+    with open(unsaved_data_file, 'a') as file:
+        for record in data_batch:
+            file.write(json.dumps(record) + '\n')
+    logging.info(f"Logged unsaved documents to {unsaved_data_file}")
+ 
 # Process all files in a specified directory, transforming and saving them in batches to the database.
 def process_all_files(directory, batch_size):
     if not os.path.exists(directory):
@@ -89,7 +142,6 @@ def process_all_files(directory, batch_size):
             
             collection_name = new_collection_name
             transformed_data = read_and_transform_data(file_path)
-            
             if transformed_data:
                 data_batch.append(transformed_data)
                 if len(data_batch) >= batch_size:
@@ -101,8 +153,14 @@ def process_all_files(directory, batch_size):
     # Ensure any remaining data is saved after all files have been processed.
     if data_batch:
         batch_save_to_database(data_batch, collection_name)
-
     logging.info(f"Total files processed: {files_processed}")
+
+def log_unsaved_data(data_batch, collection_name):
+    unsaved_data_file = f"unsaved_data_{collection_name}.log"
+    with open(unsaved_data_file, 'a') as file:
+        for record in data_batch:
+            file.write(json.dumps(record) + '\n')
+    logging.info(f"Logged unsaved documents to {unsaved_data_file}")    
 
 # Determine the appropriate MongoDB collection based on filename patterns, supporting various data types.
 def determine_collection_name(filename):
@@ -119,5 +177,36 @@ def determine_collection_name(filename):
     logging.warning(f"Unknown file type for {filename}. Defaulting to 'unknown' collection.")
     return "unknown"
 
+def anonymize_data(patient_record):
+    """
+    Anonymizes sensitive patient data by replacing identifiable information with 'REDACTED'.
+
+    Args:
+        patient_record (dict): A dictionary containing the FHIR patient record data.
+
+    Returns:
+        dict: A dictionary with the sensitive data anonymized.
+    """
+    anonymized_record = {
+        'id': patient_record.get('id', 'Unknown'),  # Preserving ID for tracking
+        'name': {'family': 'REDACTED', 'given': ['REDACTED']},
+        'birthDate': 'REDACTED',
+        'gender': 'REDACTED',
+        'telecom': [{'system': 'REDACTED', 'value': 'REDACTED', 'use': 'REDACTED'}],  
+        'conditions': ['REDACTED'],  
+        'medications': ['REDACTED'],  
+        'appointments': [{'date': 'REDACTED', 'type': 'REDACTED'}],  
+        'insurance': {'provider': 'REDACTED', 'policy_number': 'REDACTED'}
+    }
+
+    # Anonymizing address, if present
+    if 'address' in patient_record:
+        anonymized_record['address'] = [{'line': ['REDACTED'], 'city': 'REDACTED', 'state': 'REDACTED', 'postalCode': 'REDACTED', 'country': 'REDACTED'}]
+    else:
+        anonymized_record['address'] = []
+
+    return anonymized_record
+
 if __name__ == "__main__":
+    db = setup_mongo_client(use_test_db=True)
     process_all_files(config['data_directory'], config['batch_size'])
