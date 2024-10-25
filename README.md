@@ -1,82 +1,103 @@
-# FHIRDataIngest
+FHIRDataIngest
+Overview
+This project transforms FHIR (Fast Healthcare Interoperability Resources) patient data into a tabular format and stores it in MongoDB. This process makes the data easier for analytics teams to create dashboards and visualizations.
 
-# FHIR Data Ingestion and Processing System
+Technologies Used
+Programming Language: Python 3.8+
+Database: MongoDB
+Libraries: PyMongo, Flask (optional, for API)
+Testing: Python’s unittest for unit and performance tests
+Deployment: Docker (Optional)
+Getting Started
+Prerequisites
+Python 3.8 or higher
+MongoDB (running locally or accessible via the network)
+Installation
+Clone the repository:
 
-## Overview
-This project transforms FHIR patient data into a tabular format and stores it in MongoDB, making it easier for analytics teams to create dashboards and visualizations.
+git clone https://github.com/Deeokojie/FHIRDataIngest.git
+cd FHIRDataIngest
+Create a virtual environment and activate it:
 
-## Technologies Used
-- Python 3.8+
-- MongoDB
-- PyMongo
-- Flask (optional, for API)
+python -m venv venv
+source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+Install required Python packages:
 
-## Getting Started
+pip install -r requirements.txt
+Configuration
+Create a config.json file in the project root directory with the following fields:
 
-### Prerequisites
-- Python 3.8 or higher
-- MongoDB running on localhost or accessible via network
+{
+  "mongo_uri": "mongodb://localhost:27017",
+  "database_name": "fhirData",
+  "batch_size": 100,
+  "data_directory": "/path/to/data/files"
+}
+This will set up the connection to MongoDB and specify the data directory.
 
-### Installation
-1. Clone this repository:
-2. Navigate to the project directory:
-3. Install required Python packages:
+Optionally, you can use environment variables to override MongoDB settings:
 
-
-### Configuration
-1. Modify the `config.json` file to set up MongoDB URI and database names according to your setup.
 export DB_HOST='localhost'
 export DB_PORT=27017
+Running the Application
+To start processing the data, run the following command:
 
+python fhir_data_ingest.py
+This will ingest FHIR data, transform it into a tabular format, and store it in MongoDB.
 
-### Running the Tests
-Execute the unit tests to ensure everything is set up correctly:
+Running the Tests
+To run the unit and performance tests:
 
+python -m unittest
+This will execute the full suite of tests, including tests for transforming FHIR data and performance benchmarks.
 
-### Starting the Application
-To start processing the data, run:
+Docker Deployment
+To deploy this application using Docker, follow these steps:
 
-Architecture
-Overview
-The data pipeline developed for this project is designed to transform healthcare data from the FHIR format to a more analytics-friendly tabular format. This process involves several major components including a data ingestion system, a transformation layer, a MongoDB database, and testing frameworks to ensure robustness and reliability.
+Build the Docker image:
 
-Data Flow
-Ingestion: The system receives FHIR data, typically in JSON format, from an external system or supplier. This data could represent various patient-related information.
+docker build -t fhir_data_ingest .
+Run the Docker container:
 
-Transformation: The raw FHIR data is processed by the transformation layer, where it's converted into a tabular format. The transformation process extracts relevant fields and structures them into a schema that is easier for analytics and reporting tasks.
+docker run -d --name fhir_data_ingest -p 27017:27017 fhir_data_ingest
+Verify that MongoDB is running in the container:
 
-Storage: Once transformed, the data is loaded into MongoDB, a NoSQL database. MongoDB was chosen for its flexibility with schema and efficiency in handling large volumes of data.
+docker exec -it fhir_data_ingest mongo --eval 'db.runCommand({ connectionStatus: 1 })'
+Dockerfile (Create this in your project root if it doesn’t exist):
+Dockerfile
+Copy code
 
-Testing: The pipeline includes comprehensive testing, covering unit tests for individual components, integration tests to ensure data flows correctly through the entire pipeline, and performance tests to validate the efficiency of data processing and storage.
+# Use official Python image as a base image
+FROM python:3.8-slim
 
-Major Components
-MongoDB Client: Manages database connections and operations to store and retrieve data.
-Data Transformation Scripts: Consist of Python modules that specifically handle the logic required to parse and transform FHIR data into the desired format.
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-Test Suite: Developed using Python’s unittest framework, this suite tests the functionality and performance of the pipeline under various conditions.
-Docker (optional): For containerization to manage and deploy the application in isolated environments, enhancing portability and scalability.
+# Set the working directory
+WORKDIR /app
 
-Interactions
-The MongoDB client interacts directly with the MongoDB database to save or fetch data.
-Transformation scripts interface with both the incoming data stream and the database, ensuring data is correctly processed and sent to the database.
+# Copy the current directory contents into the container
+COPY . /app/
 
-The testing suite interfaces with all parts of the system to validate each segment of the data flow and the functionality of the overall system.
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Command to run the app
+CMD ["python", "fhir_data_ingest.py"]
+Architecture Overview
+The data pipeline is designed to transform healthcare data from the FHIR format into a more analytics-friendly tabular format. Major components include:
+
+Data Ingestion: Receives FHIR data in JSON format from external sources.
+Transformation: Converts raw FHIR data into a structured schema.
+Storage: Loads the transformed data into MongoDB.
+Testing: Comprehensive unit, integration, and performance tests are included to ensure robustness.
 
 Next Steps
-Future Improvements
-Enhanced Security: Implement field-level encryption within MongoDB to protect sensitive patient data more rigorously.
+Future improvements include:
 
-Scalability Enhancements: Utilize MongoDB sharding and replication features to enhance data storage scalability and availability.
+Enhanced security: Field-level encryption for sensitive data in MongoDB.
+Real-time processing: Adding streaming frameworks like Apache Kafka for real-time data handling.
 
-Data Quality Checks: Integrate more comprehensive data validation rules before the transformation process to catch errors or inconsistencies in the incoming data.
-
-Real-time Processing: Upgrade the system for real-time data processing using streaming frameworks like Apache Kafka or Apache Storm to handle data as it arrives.
-
-Next Phases of the Project
-User Interface Development: Develop a web-based dashboard to visualize the transformed data, providing analytics and insights directly to end-users.
-
-API Integration: Create APIs to allow third-party systems to access or contribute data, enhancing interoperability with other healthcare systems.
-
-Advanced Analytics: Incorporate machine learning models to predict trends from the stored data, aiding in proactive decision-making for healthcare providers.
-
-By following these next steps and making the recommended improvements, the project can be significantly enhanced to meet the growing demands of healthcare data analytics and management.
+Conclusion
+With the steps outlined above, you can deploy, test, and scale the FHIR data ingestion system, making it a valuable asset for healthcare analytics teams. Further enhancements, such as real-time processing and better security, can be incorporated as the system evolves.
