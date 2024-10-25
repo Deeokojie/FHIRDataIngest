@@ -14,7 +14,6 @@ from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 from ..fhir_transformers import transform_patient_data, anonymize_data, db
 from ..fhir_transformers import process_all_files
 
-
 logging.basicConfig(level=logging.DEBUG)
 print("Python Path:", sys.path)
 

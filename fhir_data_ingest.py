@@ -1,6 +1,6 @@
 import json
 import os
-import logging
+import logging 
 from pymongo import MongoClient, errors
 from time import sleep
 from fhir_transformers import anonymize_data, transform_patient_data
@@ -32,8 +32,7 @@ def load_config():
 
 config = load_config()
 
-# Establish a MongoDB client using the URI provided in the configuration file.
-from pymongo import MongoClient, errors
+
 
 def setup_mongo_client(use_test_db=False, use_ssl=False):
     try:
